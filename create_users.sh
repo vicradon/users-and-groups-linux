@@ -1,15 +1,33 @@
 #!/bin/bash
 
+LOG_FILE="/var/log/user_management.log"
+PASSWORD_FILE_DIRECTORY="/var/secure"
+PASSWORD_FILE="/var/secure/user_passwords.txt"
+PASSWORD_ENCRYPTION_KEY="secure-all-things"
+USERS_FILE=$1
+
 # Check if script is run with sudo
 if [ "$(id -u)" != "0" ]; then
     echo "This script must be run with sudo. Exiting..."
     exit 1
 fi
 
-PASSWORD_FILE_DIRECTORY="/var/secure"
-PASSWORD_FILE="/var/secure/user_passwords.txt"
-USERS_FILE="./users.txt"
-SCRIPT_NAME="$(basename "$0")"
+# Redirect stdout and stderr to log file
+exec > >(tee -a "$LOG_FILE") 2>&1 
+echo "Executing script... (note that this line will be logged twice)" | tee -a $LOG_FILE 
+
+# Check if an argument was provided
+if [ $# -eq 0 ]; then
+    echo "No file path provided." 
+    echo "Usage: $0 <user-data-file-path>" 
+    exit 1
+fi
+
+# Check if the user's data file exists
+if [ ! -e "$USERS_FILE" ]; then
+    echo "The provided user's data file does not exist: $USERS_FILE"
+    exit 1
+fi
 
 # Function to check if a package is installed
 is_package_installed() {
@@ -47,10 +65,13 @@ if [ ! -f "$USERS_FILE" ]; then
     exit 1
 fi
 
+# Create the directory where the user's password file will be stored
 sudo mkdir -p "$PASSWORD_FILE_DIRECTORY"
 
+# load the content of the users.txt file into an array: lines
 mapfile -t lines < "$USERS_FILE"
 
+# loop over each line in the array
 for line in "${lines[@]}"; do
     # Remove leading and trailing whitespaces
     line=$(echo "$line" | xargs)
@@ -61,6 +82,7 @@ for line in "${lines[@]}"; do
     # Remove leading and trailing whitespaces from the second part
     groups=$(echo "$groups" | xargs)
 
+    # Create a variable groupsArray that is an array from spliting the groups of each user
     IFS=',' read -ra groupsArray <<< "$groups"
 
     # Check if user exists
@@ -73,7 +95,7 @@ for line in "${lines[@]}"; do
     password=$(pwgen -sBv1 6 1)
 
     # Encrypt the password before storing it
-    encrypted_password=$(encrypt_password "$password" "my_secret_key")
+    encrypted_password=$(encrypt_password "$password" "$PASSWORD_ENCRYPTION_KEY")
 
     # Store the encrypted password in the file
     echo "$user:$encrypted_password" >> "$PASSWORD_FILE"
@@ -84,6 +106,7 @@ for line in "${lines[@]}"; do
     # Set Bash as the default shell
     set_bash_default_shell "$user"
 
+    # loop over each group in the groups array
     for group in "${groupsArray[@]}"; do
         group=$(echo "$group" | xargs)
         
@@ -98,8 +121,8 @@ for line in "${lines[@]}"; do
         echo "Added $user to $group"
     done
 
-    echo "User $user created with plaintext password: $password"
+    echo "User $user created and password stored securely"
 done
 
+# remove the created password from the current shell session
 unset password
-
